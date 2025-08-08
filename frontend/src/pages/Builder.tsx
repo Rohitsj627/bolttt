@@ -1,42 +1,37 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { StepsList } from '../components/StepsList';
-import { FileExplorer } from '../components/FileExplorer';
-import { TabView } from '../components/TabView';
+import { Header } from '../components/Header';
+import { Sidebar } from '../components/Sidebar';
 import { CodeEditor } from '../components/CodeEditor';
 import { PreviewFrame } from '../components/PreviewFrame';
+import { Terminal } from '../components/Terminal';
 import { Step, FileItem, StepType } from '../types';
 import axios from 'axios';
 import { BACKEND_URL } from '../config';
 import { parseXml } from '../steps';
 import { useWebContainer } from '../hooks/useWebContainer';
-import { FileNode } from '@webcontainer/api';
-import { Loader } from '../components/Loader';
 
-const MOCK_FILE_CONTENT = `// This is a sample file content
-import React from 'react';
-
-function Component() {
-  return <div>Hello World</div>;
+interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
 }
-
-export default Component;`;
 
 export function Builder() {
   const location = useLocation();
   const { prompt } = location.state as { prompt: string };
-  const [userPrompt, setPrompt] = useState("");
   const [llmMessages, setLlmMessages] = useState<{role: "user" | "assistant", content: string;}[]>([]);
+  const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [templateSet, setTemplateSet] = useState(false);
   const { webcontainer, loading: webContainerLoading } = useWebContainer();
 
-  const [currentStep, setCurrentStep] = useState(1);
   const [activeTab, setActiveTab] = useState<'code' | 'preview'>('code');
+  const [sidebarTab, setSidebarTab] = useState<'files' | 'chat'>('files');
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
+  const [terminalVisible, setTerminalVisible] = useState(false);
   
   const [steps, setSteps] = useState<Step[]>([]);
-
   const [files, setFiles] = useState<FileItem[]>([]);
 
   useEffect(() => {
@@ -45,8 +40,8 @@ export function Builder() {
     steps.filter(({status}) => status === "pending").forEach(step => {
       updateHappened = true;
       if (step?.type === StepType.CreateFile) {
-        let parsedPath = step.path?.split("/") ?? []; // ["src", "components", "App.tsx"]
-        let currentFileStructure = [...originalFiles]; // {}
+        let parsedPath = step.path?.split("/") ?? [];
+        let currentFileStructure = [...originalFiles];
         let finalAnswerRef = currentFileStructure;
   
         let currentFolder = ""
@@ -86,18 +81,15 @@ export function Builder() {
         }
         originalFiles = finalAnswerRef;
       }
-
     });
 
     if (updateHappened) {
-
       setFiles(originalFiles)
       setSteps(steps => steps.map((s: Step) => {
         return {
           ...s,
           status: "completed"
         }
-        
       }))
     }
   }, [steps]);
@@ -108,7 +100,6 @@ export function Builder() {
   
       const processFile = (file: FileItem, isRootFolder: boolean) => {  
         if (file.type === 'folder') {
-          // For folders, create a directory entry
           mountStructure[file.name] = {
             directory: file.children ? 
               Object.fromEntries(
@@ -124,7 +115,6 @@ export function Builder() {
               }
             };
           } else {
-            // For files, create a file entry with contents
             return {
               file: {
                 contents: file.content || ''
@@ -136,16 +126,12 @@ export function Builder() {
         return mountStructure[file.name];
       };
   
-      // Process each top-level file/folder
       files.forEach(file => processFile(file, true));
-  
       return mountStructure;
     };
   
     const mountStructure = createMountStructure(files);
   
-    // Mount the structure if WebContainer is available
-    console.log(mountStructure);
     if (webcontainer && Object.keys(mountStructure).length > 0) {
       console.log("Mounting files to WebContainer...");
       webcontainer.mount(mountStructure);
@@ -193,6 +179,13 @@ export function Builder() {
       })));
 
       setLlmMessages(x => [...x, {role: "assistant", content: stepsResponse.data.response}]);
+      
+      // Add initial chat message
+      setChatMessages([{
+        role: 'assistant',
+        content: `I've created your project based on: "${prompt}". You can now ask me to modify or enhance it!`,
+        timestamp: new Date()
+      }]);
     } catch (error) {
       console.error("Error in chat request:", error);
     } finally {
@@ -200,86 +193,121 @@ export function Builder() {
     }
   }
 
+  const handleSendMessage = async (message: string) => {
+    const newMessage: Message = {
+      role: 'user',
+      content: message,
+      timestamp: new Date()
+    };
+
+    setChatMessages(prev => [...prev, newMessage]);
+    setLoading(true);
+
+    try {
+      const llmMessage = {
+        role: "user" as "user",
+        content: message
+      };
+
+      const stepsResponse = await axios.post(`${BACKEND_URL}/chat`, {
+        messages: [...llmMessages, llmMessage]
+      });
+
+      setLlmMessages(x => [...x, llmMessage]);
+      setLlmMessages(x => [...x, {
+        role: "assistant",
+        content: stepsResponse.data.response
+      }]);
+      
+      setSteps(s => [...s, ...parseXml(stepsResponse.data.response).map(x => ({
+        ...x,
+        status: "pending" as "pending"
+      }))]);
+
+      const assistantMessage: Message = {
+        role: 'assistant',
+        content: "I've updated your project based on your request!",
+        timestamp: new Date()
+      };
+
+      setChatMessages(prev => [...prev, assistantMessage]);
+    } catch (error) {
+      console.error("Error sending message:", error);
+      const errorMessage: Message = {
+        role: 'assistant',
+        content: "Sorry, I encountered an error processing your request. Please try again.",
+        timestamp: new Date()
+      };
+      setChatMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (prompt) {
-    init();
+      init();
     }
-  }, [])
+  }, []);
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
-      <header className="bg-gray-800 border-b border-gray-700 px-6 py-4">
-        <h1 className="text-xl font-semibold text-gray-100">Website Builder</h1>
-        <p className="text-sm text-gray-400 mt-1">Prompt: {prompt}</p>
-      </header>
+    <div className="min-h-screen bg-gray-950 flex flex-col">
+      <Header 
+        prompt={prompt} 
+        onToggleTerminal={() => setTerminalVisible(!terminalVisible)}
+        terminalVisible={terminalVisible}
+      />
       
-      <div className="flex-1 overflow-hidden">
-        <div className="h-full grid grid-cols-4 gap-6 p-6">
-          <div className="col-span-1 space-y-6 overflow-auto">
-            <div>
-              <div className="max-h-[75vh] overflow-scroll">
-                <StepsList
-                  steps={steps}
-                  currentStep={currentStep}
-                  onStepClick={setCurrentStep}
-                />
-              </div>
-              <div>
-                <div className='flex'>
-                  <br />
-                  {(loading || !templateSet) && <Loader />}
-                  {!(loading || !templateSet) && <div className='flex'>
-                    <textarea value={userPrompt} onChange={(e) => {
-                    setPrompt(e.target.value)
-                  }} className='p-2 w-full'></textarea>
-                  <button onClick={async () => {
-                    const newMessage = {
-                      role: "user" as "user",
-                      content: userPrompt
-                    };
-
-                    setLoading(true);
-                    const stepsResponse = await axios.post(`${BACKEND_URL}/chat`, {
-                      messages: [...llmMessages, newMessage]
-                    });
-                    setLoading(false);
-
-                    setLlmMessages(x => [...x, newMessage]);
-                    setLlmMessages(x => [...x, {
-                      role: "assistant",
-                      content: stepsResponse.data.response
-                    }]);
-                    
-                    setSteps(s => [...s, ...parseXml(stepsResponse.data.response).map(x => ({
-                      ...x,
-                      status: "pending" as "pending"
-                    }))]);
-
-                  }} className='bg-purple-400 px-4'>Send</button>
-                  </div>}
-                </div>
-              </div>
-            </div>
+      <div className="flex-1 flex overflow-hidden">
+        <Sidebar
+          files={files}
+          onFileSelect={setSelectedFile}
+          onSendMessage={handleSendMessage}
+          messages={chatMessages}
+          loading={loading}
+          activeTab={sidebarTab}
+          onTabChange={setSidebarTab}
+        />
+        
+        <div className="flex-1 flex flex-col p-6 gap-6">
+          <div className="flex gap-2">
+            <button
+              onClick={() => setActiveTab('code')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === 'code'
+                  ? 'bg-gray-800 text-gray-100 border border-gray-700'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+              }`}
+            >
+              Code
+            </button>
+            <button
+              onClick={() => setActiveTab('preview')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === 'preview'
+                  ? 'bg-gray-800 text-gray-100 border border-gray-700'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+              }`}
+            >
+              Preview
+            </button>
           </div>
-          <div className="col-span-1">
-              <FileExplorer 
-                files={files} 
-                onFileSelect={setSelectedFile}
-              />
-            </div>
-          <div className="col-span-2 bg-gray-900 rounded-lg shadow-lg p-4 h-[calc(100vh-8rem)]">
-            <TabView activeTab={activeTab} onTabChange={setActiveTab} />
-            <div className="h-[calc(100%-4rem)]">
-              {activeTab === 'code' ? (
-                <CodeEditor file={selectedFile} />
-              ) : (
-                <PreviewFrame webContainer={webcontainer!} files={files} />
-              )}
-            </div>
+          
+          <div className="flex-1 overflow-hidden">
+            {activeTab === 'code' ? (
+              <CodeEditor file={selectedFile} />
+            ) : (
+              <PreviewFrame webContainer={webcontainer!} files={files} />
+            )}
           </div>
         </div>
       </div>
+      
+      <Terminal 
+        webContainer={webcontainer}
+        isVisible={terminalVisible}
+        onToggle={() => setTerminalVisible(!terminalVisible)}
+      />
     </div>
   );
 }

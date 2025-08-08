@@ -1,5 +1,6 @@
 import { WebContainer } from '@webcontainer/api';
 import React, { useEffect, useState } from 'react';
+import { RefreshCw, ExternalLink, AlertCircle } from 'lucide-react';
 
 interface PreviewFrameProps {
   files: any[];
@@ -94,17 +95,24 @@ export function PreviewFrame({ files, webContainer }: PreviewFrameProps) {
     }
   }
 
+  const refreshPreview = () => {
+    setUrl("");
+    startPreview();
+  };
+
   useEffect(() => {
     if (webContainer && files.length > 0) {
       startPreview();
     }
-  }, [webContainer, files.length]); // Only depend on files.length to avoid infinite loops
+  }, [webContainer, files.length]);
 
   if (!webContainer) {
     return (
-      <div className="h-full flex items-center justify-center text-gray-400">
-        <div className="text-center">
-          <p>WebContainer is loading...</p>
+      <div className="h-full flex items-center justify-center bg-gray-950 rounded-lg border border-gray-800">
+        <div className="text-center text-gray-500">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto mb-4"></div>
+          <p className="text-lg font-medium mb-2">Initializing WebContainer</p>
+          <p className="text-sm">Setting up the development environment...</p>
         </div>
       </div>
     );
@@ -112,10 +120,13 @@ export function PreviewFrame({ files, webContainer }: PreviewFrameProps) {
 
   if (files.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center text-gray-400">
-        <div className="text-center">
-          <p>No files to preview</p>
-          <p className="text-sm mt-2">Generate some code first</p>
+      <div className="h-full flex items-center justify-center bg-gray-950 rounded-lg border border-gray-800">
+        <div className="text-center text-gray-500">
+          <div className="w-16 h-16 bg-gray-800 rounded-lg flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl">🚀</span>
+          </div>
+          <p className="text-lg font-medium mb-2">Ready to build</p>
+          <p className="text-sm">Your preview will appear here once you generate some code</p>
         </div>
       </div>
     );
@@ -123,14 +134,16 @@ export function PreviewFrame({ files, webContainer }: PreviewFrameProps) {
 
   if (error) {
     return (
-      <div className="h-full flex items-center justify-center text-red-400">
+      <div className="h-full flex items-center justify-center bg-gray-950 rounded-lg border border-gray-800">
         <div className="text-center">
-          <p>Preview Error:</p>
-          <p className="text-sm mt-2">{error}</p>
+          <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+          <p className="text-lg font-medium text-red-400 mb-2">Preview Error</p>
+          <p className="text-sm text-gray-400 mb-4 max-w-md">{error}</p>
           <button 
-            onClick={startPreview}
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            onClick={refreshPreview}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 mx-auto"
           >
+            <RefreshCw className="w-4 h-4" />
             Retry
           </button>
         </div>
@@ -140,11 +153,11 @@ export function PreviewFrame({ files, webContainer }: PreviewFrameProps) {
 
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center text-gray-400">
-        <div className="text-center">
+      <div className="h-full flex items-center justify-center bg-gray-950 rounded-lg border border-gray-800">
+        <div className="text-center text-gray-400">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto mb-4"></div>
-          <p>Setting up preview...</p>
-          <p className="text-sm mt-2">Installing dependencies and starting dev server</p>
+          <p className="text-lg font-medium mb-2">Building your project</p>
+          <p className="text-sm">Installing dependencies and starting dev server...</p>
         </div>
       </div>
     );
@@ -152,19 +165,43 @@ export function PreviewFrame({ files, webContainer }: PreviewFrameProps) {
 
   if (!url) {
     return (
-      <div className="h-full flex items-center justify-center text-gray-400">
-        <div className="text-center">
-          <p>Waiting for dev server to start...</p>
+      <div className="h-full flex items-center justify-center bg-gray-950 rounded-lg border border-gray-800">
+        <div className="text-center text-gray-400">
+          <div className="animate-pulse w-12 h-12 bg-gray-800 rounded-lg mx-auto mb-4"></div>
+          <p className="text-lg font-medium mb-2">Starting dev server</p>
+          <p className="text-sm">Please wait...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-full">
+    <div className="h-full bg-gray-950 rounded-lg border border-gray-800 overflow-hidden">
+      <div className="bg-gray-900 px-4 py-2 border-b border-gray-800 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 bg-green-400 rounded-full"></div>
+          <span className="text-sm text-gray-400 font-mono">{url}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={refreshPreview}
+            className="p-1 text-gray-400 hover:text-gray-200 transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => window.open(url, '_blank')}
+            className="p-1 text-gray-400 hover:text-gray-200 transition-colors"
+            title="Open in new tab"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
       <iframe 
         src={url} 
-        className="w-full h-full border-0 rounded"
+        className="w-full h-[calc(100%-40px)] border-0"
         title="Preview"
         onError={() => setError("Failed to load preview")}
       />
