@@ -29,7 +29,7 @@ export function Builder() {
   const [llmMessages, setLlmMessages] = useState<{role: "user" | "assistant", content: string;}[]>([]);
   const [loading, setLoading] = useState(false);
   const [templateSet, setTemplateSet] = useState(false);
-  const webcontainer = useWebContainer();
+  const { webcontainer, loading: webContainerLoading } = useWebContainer();
 
   const [currentStep, setCurrentStep] = useState(1);
   const [activeTab, setActiveTab] = useState<'code' | 'preview'>('code');
@@ -42,7 +42,7 @@ export function Builder() {
   useEffect(() => {
     let originalFiles = [...files];
     let updateHappened = false;
-    steps.filter(({status}) => status === "pending").map(step => {
+    steps.filter(({status}) => status === "pending").forEach(step => {
       updateHappened = true;
       if (step?.type === StepType.CreateFile) {
         let parsedPath = step.path?.split("/") ?? []; // ["src", "components", "App.tsx"]
@@ -87,7 +87,7 @@ export function Builder() {
         originalFiles = finalAnswerRef;
       }
 
-    })
+    });
 
     if (updateHappened) {
 
@@ -100,8 +100,7 @@ export function Builder() {
         
       }))
     }
-    console.log(files);
-  }, [steps, files]);
+  }, [steps]);
 
   useEffect(() => {
     const createMountStructure = (files: FileItem[]): Record<string, any> => {
@@ -147,13 +146,20 @@ export function Builder() {
   
     // Mount the structure if WebContainer is available
     console.log(mountStructure);
-    webcontainer?.mount(mountStructure);
+    if (webcontainer && Object.keys(mountStructure).length > 0) {
+      console.log("Mounting files to WebContainer...");
+      webcontainer.mount(mountStructure);
+    }
   }, [files, webcontainer]);
 
   async function init() {
+    console.log("Starting initialization with prompt:", prompt);
+    
     const response = await axios.post(`${BACKEND_URL}/template`, {
       prompt: prompt.trim()
     });
+    
+    console.log("Template response:", response.data);
     setTemplateSet(true);
     
     const {prompts, uiPrompts} = response.data;
@@ -163,31 +169,42 @@ export function Builder() {
       status: "pending"
     })));
 
+    console.log("Sending chat request...");
     setLoading(true);
-    const stepsResponse = await axios.post(`${BACKEND_URL}/chat`, {
-      messages: [...prompts, prompt].map(content => ({
+    
+    try {
+      const stepsResponse = await axios.post(`${BACKEND_URL}/chat`, {
+        messages: [...prompts, prompt].map(content => ({
+          role: "user",
+          content
+        }))
+      });
+      
+      console.log("Chat response received:", stepsResponse.data);
+
+      setSteps(s => [...s, ...parseXml(stepsResponse.data.response).map(x => ({
+        ...x,
+        status: "pending" as "pending"
+      }))]);
+
+      setLlmMessages([...prompts, prompt].map(content => ({
         role: "user",
         content
-      }))
-    })
+      })));
 
-    setLoading(false);
-
-    setSteps(s => [...s, ...parseXml(stepsResponse.data.response).map(x => ({
-      ...x,
-      status: "pending" as "pending"
-    }))]);
-
-    setLlmMessages([...prompts, prompt].map(content => ({
-      role: "user",
-      content
-    })));
-
-    setLlmMessages(x => [...x, {role: "assistant", content: stepsResponse.data.response}])
+      setLlmMessages(x => [...x, {role: "assistant", content: stepsResponse.data.response}]);
+    } catch (error) {
+      console.error("Error in chat request:", error);
+    } finally {
+      setLoading(false);
+    }
   }
 
+
   useEffect(() => {
+    if (prompt) {
     init();
+    }
   }, [])
 
   return (
@@ -257,7 +274,7 @@ export function Builder() {
               {activeTab === 'code' ? (
                 <CodeEditor file={selectedFile} />
               ) : (
-                <PreviewFrame webContainer={webcontainer} files={files} />
+                <PreviewFrame webContainer={webcontainer!} files={files} />
               )}
             </div>
           </div>
